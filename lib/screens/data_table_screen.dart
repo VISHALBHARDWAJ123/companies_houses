@@ -3,13 +3,22 @@ import 'dart:convert';
 import 'dart:developer';
 import 'dart:io';
 
+import 'package:csv_read/database_function/hive_model.dart';
 import 'package:csv_read/main.dart' as main;
 import 'package:flutter/material.dart';
+import 'package:hive/hive.dart';
 import 'package:http/http.dart' as http;
 import 'package:retry/retry.dart';
+import 'package:syncfusion_flutter_datagrid/datagrid.dart';
+
+import '../database_function/hive_function.dart';
+import '../main.dart';
 
 class DataTableClass extends StatefulWidget {
-  const DataTableClass({super.key, required this.dataList});
+  final String sheetName;
+
+  const DataTableClass(
+      {super.key, required this.dataList, required this.sheetName});
 
   final List<main.InitialCompanyData> dataList;
 
@@ -25,37 +34,95 @@ class _DataTableClassState extends State<DataTableClass> {
     // TODO: implement initState
 
     List<String> urls = List<String>.from(widget.dataList.map((e) =>
-    'https://api.company-information.service.gov.uk/company/${e.companyData!= null ? e.companyData!.items.isEmpty ? '' : e.companyData!.items[0].companyNumber : ''}/officers'));
+    'https://api.company-information.service.gov.uk/company/${e.companyData !=
+        null ? e.companyData!.items.isEmpty ? '' : e.companyData!.items[0]
+        .companyNumber : ''}/officers'));
 
-    hitApiRequestsInBatches(urls, 10).whenComplete(() {
-      print(jsonEncode(multipleResponses));
+    hitApiRequestsInBatches(urls, 10).then((value) {
+      // Process API responses
+      final directorDataList = <DirectorDataClass>[];
 
-      for (int i = 0; i < multipleResponses.length; i++) {
-        final directorInfo = multipleResponses[i].isEmpty
+      for (int i = 0; i < value.length; i++) {
+        final directorInfo = value[i].isEmpty || value[i] == '' ||
+            (jsonDecode(value[i]) as Map<String, dynamic>).containsKey('errors')
             ? null
-            : DirectorDetailsModel.fromJson(jsonDecode(multipleResponses[i]));
+            : DirectorDetailsModel.fromJson(jsonDecode(value[i]));
 
         final directorClass = DirectorDataClass(
             companyData: widget.dataList[i], directorDetails: directorInfo);
-        data.add(directorClass);
+        directorDataList.add(directorClass);
       }
+
+      // Update state with processed data
+      setState(() {
+        data = directorDataList;
+      });
+
+      // Print the length of data
       print(data.length.toString());
     });
+
     super.initState();
   }
-
-
 
   // void
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      floatingActionButton: dataLoading == false ? FloatingActionButton(
+        onPressed: () {}, child: const Icon(Icons.save),) : const SizedBox(),
       body: dataLoading
           ? const Center(
-              child: CircularProgressIndicator(),
-            )
-          : SingleChildScrollView(
+        child: CircularProgressIndicator(),
+      )
+          : SfDataGrid(
+        source: EmployeeDataSource(employees: data),
+        columns: [
+          GridColumn(
+              columnName: 'company name',
+              columnWidthMode: ColumnWidthMode.fitByColumnName,
+              label: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  alignment: Alignment.centerRight,
+                  child: const Text(
+                    'Company Name',
+                    overflow: TextOverflow.ellipsis,
+                  ))),
+          GridColumn(
+              columnName: 'company number',
+              columnWidthMode: ColumnWidthMode.auto
+              ,
+              label: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  alignment: Alignment.centerLeft,
+                  child: const Text(
+                    'Director Names',
+                    overflow: TextOverflow.ellipsis,
+                  ))),
+          GridColumn(
+              columnName: 'designation',
+              columnWidthMode: ColumnWidthMode.auto,
+              label: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  alignment: Alignment.centerLeft,
+                  child: const Text(
+                    'Designation',
+                    overflow: TextOverflow.ellipsis,
+                  ))),
+          GridColumn(
+              columnName: 'salary',
+              columnWidthMode: ColumnWidthMode.auto,
+              label: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  alignment: Alignment.centerRight,
+                  child: const Text(
+                    'Salary',
+                    overflow: TextOverflow.ellipsis,
+                  ))),
+        ],
+      ),
+      /*SingleChildScrollView(
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: DataTable(
@@ -64,6 +131,9 @@ class _DataTableClassState extends State<DataTableClass> {
                     DataColumn(label: Text('Company Name')),
                     DataColumn(label: Text('Comapny Number')),
                     DataColumn(label: Text('Directors')),
+                    DataColumn(label: Text('Directors Contacts')),
+                    DataColumn(label: Text('D.O.B')),
+                    DataColumn(label: Text('Resign Date')),
                     DataColumn(label: Text('Refresh')),
                   ],
                   rows: data
@@ -84,7 +154,52 @@ class _DataTableClassState extends State<DataTableClass> {
                             DataCell(
                               SizedBox(
                                   width: 100,
-                                  child: Text(e.directorDetails!=null?e.directorDetails!.items.isNotEmpty?e.directorDetails!.items[0].name:'':'')),
+                                  child: Text(e.directorDetails != null
+                                      ? e.directorDetails!.items.isNotEmpty
+                                          ? e.directorDetails!.items
+                                              .map((e) => e.name)
+                                              .toList()
+                                              .join('\n')
+                                          : ''
+                                      : '')),
+                            ),
+                            DataCell(
+                              SizedBox(
+                                  width: 100,
+                                  child: Text(e.directorDetails != null
+                                      ? e.directorDetails!.items.isNotEmpty
+                                          ? e.directorDetails!.items
+                                              .map((e) => e.personNumber)
+                                              .toList()
+                                              .join('\n')
+                                          : ''
+                                      : '')),
+                            ),
+                            DataCell(
+                              SizedBox(
+                                  width: 100,
+                                  child: Text(e.directorDetails != null
+                                      ? e.directorDetails!.items.isNotEmpty
+                                          ? e.directorDetails!.items
+                                              .map((e) =>
+                                                  '${e.dateOfBirth.month}/${e.dateOfBirth.year}')
+                                              .toList()
+                                              .join('\n')
+                                          : ''
+                                      : '')),
+                            ),
+                            DataCell(
+                              SizedBox(
+                                  width: 100,
+                                  child: Text(e.directorDetails != null
+                                      ? e.directorDetails!.items.isNotEmpty
+                                          ? e.directorDetails!.items
+                                              .map((e) =>
+                                                  '${e.resignedOn}')
+                                              .toList()
+                                              .join('\n')
+                                          : ''
+                                      : '')),
                             ),
                             DataCell(
                               IconButton(
@@ -94,28 +209,47 @@ class _DataTableClassState extends State<DataTableClass> {
                                           url:
                                               'https://api.company-information.service.gov.uk/search?q=${e.companyData.companyName}&items_per_page=1&start_index=1');
                                       final decodedData =
-                                      main.ComapnyDetailsModelModel.fromJson(
-                                              jsonDecode(response));
+                                          main.ComapnyDetailsModelModel
+                                              .fromJson(jsonDecode(response));
 
                                       final data1 = main.InitialCompanyData(
                                           companyName:
-                                              e.companyData.companyName,companyData: decodedData);
-String directorDetails = '';
-                                      final response1 = await fixIndividualDataRow(url:  'https://api.company-information.service.gov.uk/company/${e.companyData.companyData != null ? e.companyData.companyData!.items.isEmpty ? '' : e.companyData.companyData!.items[0].companyNumber : ''}/officers');
-                                      final data2 = DirectorDataClass(companyData: data1, directorDetails: e.directorDetails);
-                                      int indexOf = data.indexWhere((element) => element.companyData.companyName == e.companyData.companyName);
+                                              e.companyData.companyName,
+                                          companyData: decodedData);
 
-                                      data.replaceRange(indexOf, indexOf, [data2]);
+                                      final data2 = DirectorDataClass(
+                                          companyData: data1,
+                                          directorDetails: e.directorDetails);
+                                      int indexOf = data.indexWhere((element) =>
+                                          element.companyData.companyName ==
+                                          e.companyData.companyName);
+
+                                      data.replaceRange(
+                                          indexOf, indexOf, [data2]);
                                       data.toSet().toList();
-                                      data.remove(e);
-                                      setState(() {
 
-                                      });
+                                      setState(() {});
                                     }
                                     if(e.directorDetails == null){
+                                      final response1 = await fixIndividualDataRow(
+                                          url: 'https://api.company-information.service.gov.uk/company/${e.companyData.companyData != null ? e.companyData.companyData!.items.isEmpty ? '' : e.companyData.companyData!.items[0].companyNumber : ''}/officers');
+                                      final data1 = main.InitialCompanyData(
+                                          companyName:
+                                          e.companyData.companyName,
+                                          companyData: e.companyData.companyData);
 
+                                      final data2 = DirectorDataClass(
+                                          companyData: data1,
+                                          directorDetails: DirectorDetailsModel.fromJson(jsonDecode(response1)));
+                                      int indexOf = data.indexWhere((element) =>
+                                      element.companyData.companyName ==
+                                          e.companyData.companyName);
+                                      data.replaceRange(
+                                          indexOf, indexOf, [data2]);
+                                      data.toSet().toList();
 
                                     }
+
                                   },
                                   icon: const Icon(Icons.refresh)),
                             ),
@@ -123,15 +257,13 @@ String directorDetails = '';
                       .toList(),
                 ),
               ),
-            ),
+            ),*/
       appBar: AppBar(
         title: const Text('Table Screen'),
       ),
     );
   }
 
-  int _currentPage = 1;
-  int _itemsPerPage = 10;
   bool dataLoading = false;
   List<String> multipleResponses = [];
 
@@ -140,9 +272,11 @@ String directorDetails = '';
     log(url);
     final response = await retry(
       // Make a GET request
-      () => http.get(Uri.parse(url), headers: {
-        "Authorization": 'Basic ${base64Encode(utf8.encode('${main.apiKey}:'))}'
-      }).timeout(const Duration(seconds: 30)),
+          () =>
+          http.get(Uri.parse(url), headers: {
+            "Authorization": 'Basic ${base64Encode(
+                utf8.encode('${main.apiKey}:'))}'
+          }).timeout(const Duration(seconds: 30)),
 
       onRetry: (reason) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -154,63 +288,273 @@ String directorDetails = '';
     return response.body;
   }
 
-  Future<void> hitApiRequestsInBatches(
-    List<String> urls,
-    int batchSize,
-  ) async {
-    Stopwatch stopwatch = Stopwatch();
-    stopwatch.start();
-    setState(() {
-      dataLoading = true;
-    });
-    List<String> responses = [];
-    print('Basic ${base64Encode(utf8.encode('${main.apiKey}:'))}');
+  final databaseHelper = DatabaseHelper();
 
-    // Split the URLs into batches
+/*  Future<List<String>> hitApiRequestsInBatches(
+      List<String> urls, int batchSize) async {
+    final stopwatch = Stopwatch()..start();
+    setState(() => dataLoading = true);
+    final responses = <String>[];
+    final _apiKey = base64Encode(utf8.encode('$apiKey:'));
+
+    int urlIndex = 0;
+
+    while (urlIndex < urls.length) {
+      int urlsWithoutResponseCount = 0;
+
+      for (final companyData in widget.dataList) {
+        final companyName = companyData.companyName;
+
+        try {
+          final cachedData = await databaseHelper.getCompany(widget.sheetName, companyName);
+
+          if (cachedData != null && cachedData.directorDetails != null) {
+            log('Response from database for $companyName');
+            responses.add(cachedData.directorDetails!);
+          } else {
+            final url = urls[urlIndex];
+
+            print(url);
+            final response = await retry(
+                  () => http.get(Uri.parse(url),
+                  headers: {'Authorization': 'Basic $_apiKey'}),
+              onRetry: (reason) => ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Retrying. Error Occurred\n$reason'),
+                ),
+              ),
+              retryIf: (error) =>
+              error is SocketException || error is TimeoutException,
+            );
+
+            if (response.statusCode == 429) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text(
+                  'Too Many Requests on Current API key. Please wait for 5 minutes at least.\nSelect your file again after some time.',
+                ),
+              ));
+              await Future.delayed(const Duration(minutes: 5, seconds: 10));
+            } else {
+              log('API Response for $companyName: ${response.body}');
+              final company = Company(
+                companyName: companyName,
+                companyDetails: jsonEncode(companyData.companyData?.toJson()),
+                directorDetails: response.body,
+              );
+              await databaseHelper.updateCompany(widget.sheetName, company);
+              responses.add(response.body);
+            }
+            urlsWithoutResponseCount++;
+          }
+        } catch (e) {
+          print(e.toString());
+          urlsWithoutResponseCount++;
+        }
+      }
+
+      urlIndex++;
+
+      if (urlsWithoutResponseCount == widget.dataList.length && urls.length % 600 == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+            'API limit exceeded. Pausing for 5 minutes and 10 seconds.',
+          ),
+        ));
+        await Future.delayed(const Duration(minutes: 5, seconds: 10));
+      }
+    }
+
+    setState(() => dataLoading = false);
+    stopwatch.stop();
+    log('Time taken for ${urls.length} APIs: ${stopwatch.elapsed.inMinutes.toString()} minutes');
+    return responses;
+  }*/
+
+
+
+
+  Future<List<String>> hitApiRequestsInBatches(
+      List<String> urls, int batchSize) async {
+    final stopwatch = Stopwatch()..start();
+
+    // Open Hive box with error handling
+
+
+    setState(() => dataLoading = true);
+
+    final responses = <String>[];
+    final _apiKey = base64Encode(
+        utf8.encode('$apiKey:'));
+    bool  pauseApiRequest = false;// Pre-compute base64 for efficiency
+
     for (int i = 0; i < urls.length; i += batchSize) {
-      List<String> batchUrls = urls.sublist(
+      final batchUrls = urls.sublist(
           i, i + batchSize < urls.length ? i + batchSize : urls.length);
 
-      // Send requests for the current batch in parallel
-      List<Future<String>> batchFutures = batchUrls.map((url) async {
-        try {
-          final response = await retry(
-            // Make a GET request
-            () => http.get(Uri.parse(url), headers: {
-              "Authorization": 'Basic ${base64Encode(utf8.encode('${main.apiKey}:'))}'
-            }).timeout(const Duration(seconds: 30)),
 
-            onRetry: (reason) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  content:
-                      Text('Retrying. Error Occurred\n${reason.toString()}')));
-            },
-            // Retry on SocketException or TimeoutException
-            retryIf: (e) => e is SocketException || e is TimeoutException,
-          );
-          return response.body;
-        } catch (e) {
-          // Handle exception, for example, log it
-          print('Error occurred while fetching data: $e');
-          // Return an empty string or some placeholder value
-          return '';
-        }
-      }).toList();
 
-      // Wait for all requests in the current batch to complete
-      List<String> batchResponses = await Future.wait(batchFutures);
-      await Future.delayed(const Duration(seconds: 2));
+      if(pauseApiRequest == true) {
+        await Future.delayed(const Duration(seconds: 2, minutes: 5));
+        pauseApiRequest = false;
+      }else{
+        final companyName = widget.dataList[i].companyName;
+        final batchFutures = batchUrls.map((url) async {
+          try {
 
-      // Add the responses from the current batch to the list of all responses
-      responses.addAll(batchResponses);
-      print('Total responses received: ${responses.length}');
+            try {
+              final cachedData = await databaseHelper.getCompany(widget.sheetName, companyName);
+if(cachedData !=null) {
+                if (cachedData.directorDetails != null) {
+                  log('Response from database');
+                  return cachedData
+                      .directorDetails; // Use cached data if available
+                } else {
+                  log('Data is not available ');
+                  final response = await retry(
+                    () => http.get(Uri.parse(url),
+                        headers: {'Authorization': 'Basic $_apiKey'}),
+                    onRetry: (reason) =>
+                        ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Retrying. Error Occurred\n$reason'),
+                      ),
+                    ),
+                    retryIf: (error) =>
+                        error is SocketException || error is TimeoutException,
+                  );
+                  if (response.statusCode == 502) {
+                    return '';
+                  }
+
+                  if (response.statusCode == 429) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text(
+                        'Too Many Requests on Current API key. Please wait for 5 minutes at least.\nSelect your file again after some time.',
+                      ),
+                    ));
+                    pauseApiRequest = true;
+
+                    // Consider implementing exponential backoff here
+                  } else {
+                    final company = Company(
+                      companyName: companyName,
+                      companyDetails: jsonEncode(widget.dataList
+                          .firstWhere(
+                              (element) => element.companyName == companyName)
+                          .companyData!
+                          .toJson()),
+                      directorDetails: response.body,
+                    );
+                    await databaseHelper.updateCompany(
+                        widget.sheetName, company);
+                    responses.add(response.body);
+                  }
+
+                  return response.body;
+                }
+              }else{
+  final response = await retry(
+        () => http.get(Uri.parse(url),
+        headers: {'Authorization': 'Basic $_apiKey'}),
+    onRetry: (reason) => ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Retrying. Error Occurred\n$reason'),
+      ),
+    ),
+    retryIf: (error) =>
+    error is SocketException || error is TimeoutException,
+  );
+  if(response.statusCode == 502){
+    return '';
+  }
+
+  if (response.statusCode == 429) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text(
+        'Too Many Requests on Current API key. Please wait for 5 minutes at least.\nSelect your file again after some time.',
+      ),
+    ));
+    pauseApiRequest = true;
+
+    // Consider implementing exponential backoff here
+  } else {
+    final company = Company(
+      companyName: companyName,
+      companyDetails: jsonEncode(widget.dataList.firstWhere((element) => element.companyName == companyName).companyData!.toJson()),
+      directorDetails: response.body,
+    );
+    await databaseHelper.updateCompany(widget.sheetName, company);
+    responses.add(response.body);
+  }
+
+  return response.body;
+}
+            } catch (e) {
+              print(e.toString());
+              final response = await retry(
+                    () => http.get(Uri.parse(url),
+                    headers: {'Authorization': 'Basic $_apiKey'}),
+                onRetry: (reason) => ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Retrying. Error Occurred\n$reason'),
+                  ),
+                ),
+                retryIf: (error) =>
+                error is SocketException || error is TimeoutException,
+              );
+              if(response.statusCode == 502){
+                return '';
+              }
+
+              if (response.statusCode == 429) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text(
+                    'Too Many Requests on Current API key. Please wait for 5 minutes at least.\nSelect your file again after some time.',
+                  ),
+                ));
+                pauseApiRequest = true;
+
+                // Consider implementing exponential backoff here
+              } else {
+                final company = Company(
+                  companyName: companyName,
+                  companyDetails: jsonEncode(widget.dataList.firstWhere((element) => element.companyName == companyName).companyData!.toJson()),
+                  directorDetails: response.body,
+                );
+                await databaseHelper.updateCompany(widget.sheetName, company);
+                responses.add(response.body);
+              }
+
+              return response.body;
+            }
+
+          } catch (error) {
+
+            final company2 = Company(
+              companyName: companyName,
+              companyDetails: jsonEncode(widget.dataList.firstWhere((element) => element .companyName == companyName).companyData != null?widget.dataList.firstWhere((element) => element .companyName == companyName).companyData!.toJson():{} ),
+              directorDetails: '',
+            );
+            await databaseHelper.updateCompany(widget.sheetName, company2);
+            responses.add('');
+            print('Error fetching data for $url: $error');
+            // Consider logging specific error details
+            return ''; // Or handle the error differently
+          }
+        }).toList();
+
+        final batchResponses = await Future.wait(batchFutures);
+        responses.addAll(batchResponses.map((e) => e??'').toList());
+        log('Total Responses ${responses.length}');
+      }
+
     }
-    setState(() {
-      multipleResponses = responses;
-      dataLoading = false;
-    });
+
+    setState(() => dataLoading = false);
     stopwatch.stop();
-    log("Time taken by All the ${urls.length} APIs ${stopwatch.elapsed.inMinutes}");
+    log('Time taken for ${urls.length} APIs: ${stopwatch.elapsed.inMinutes.toString()} minutes');
+
+    return responses;
   }
 }
 
@@ -268,7 +612,8 @@ class DirectorDetailsModel {
     );
   }
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toJson() =>
+      {
         "active_count": activeCount,
         "etag": etag,
         "items": items.map((x) => x.toJson()).toList(),
@@ -318,7 +663,8 @@ class Address {
     );
   }
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toJson() =>
+      {
         "address_line_1": addressLine1,
         "address_line_2": addressLine2,
         "country": country,
@@ -328,6 +674,7 @@ class Address {
         "region": region,
       };
 }
+
 class Item2 {
   final Address address;
   final String appointedOn;
@@ -361,38 +708,38 @@ class Item2 {
 
   String toRawJson() => json.encode(toJson());
 
-  factory Item2.fromJson(Map<String, dynamic> json) => Item2(
-    address: Address.fromJson(json["address"] ?? {}),
-    appointedOn: json["appointed_on"] ?? "",
-    isPre1992Appointment: json["is_pre_1992_appointment"] ?? false,
-    countryOfResidence: json["country_of_residence"] ?? "",
-    dateOfBirth: DateOfBirth.fromJson(json["date_of_birth"] ?? {}),
-    links: ItemLinks.fromJson(json["links"] ?? {}),
-    name: json["name"] ?? "",
-    nationality: json["nationality"] ?? "",
-    occupation: json["occupation"] ?? "",
-    officerRole: json["officer_role"] ?? "",
-    personNumber: json["person_number"] ?? "",
-    resignedOn: json["resigned_on"] ?? "",
-  );
+  factory Item2.fromJson(Map<String, dynamic> json) =>
+      Item2(
+        address: Address.fromJson(json["address"] ?? {}),
+        appointedOn: json["appointed_on"] ?? "",
+        isPre1992Appointment: json["is_pre_1992_appointment"] ?? false,
+        countryOfResidence: json["country_of_residence"] ?? "",
+        dateOfBirth: DateOfBirth.fromJson(json["date_of_birth"] ?? {}),
+        links: ItemLinks.fromJson(json["links"] ?? {}),
+        name: json["name"] ?? "",
+        nationality: json["nationality"] ?? "",
+        occupation: json["occupation"] ?? "",
+        officerRole: json["officer_role"] ?? "",
+        personNumber: json["person_number"] ?? "",
+        resignedOn: json["resigned_on"] ?? "",
+      );
 
-  Map<String, dynamic> toJson() => {
-    "address": address.toJson(),
-    "appointed_on": appointedOn,
-    "is_pre_1992_appointment": isPre1992Appointment,
-    "country_of_residence": countryOfResidence,
-    "date_of_birth": dateOfBirth.toJson(),
-    "links": links.toJson(),
-    "name": name,
-    "nationality": nationality,
-    "occupation": occupation,
-    "officer_role": officerRole,
-    "person_number": personNumber,
-    "resigned_on": resignedOn,
-  };
+  Map<String, dynamic> toJson() =>
+      {
+        "address": address.toJson(),
+        "appointed_on": appointedOn,
+        "is_pre_1992_appointment": isPre1992Appointment,
+        "country_of_residence": countryOfResidence,
+        "date_of_birth": dateOfBirth.toJson(),
+        "links": links.toJson(),
+        "name": name,
+        "nationality": nationality,
+        "occupation": occupation,
+        "officer_role": officerRole,
+        "person_number": personNumber,
+        "resigned_on": resignedOn,
+      };
 }
-
-
 
 class DateOfBirth {
   final int month;
@@ -415,7 +762,8 @@ class DateOfBirth {
     );
   }
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toJson() =>
+      {
         "month": month,
         "year": year,
       };
@@ -442,7 +790,8 @@ class ItemLinks {
     );
   }
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toJson() =>
+      {
         "self": self,
         "officer": officer.toJson(),
       };
@@ -459,11 +808,13 @@ class Officer {
 
   String toRawJson() => json.encode(toJson());
 
-  factory Officer.fromJson(Map<String, dynamic> json) => Officer(
+  factory Officer.fromJson(Map<String, dynamic> json) =>
+      Officer(
         appointments: json["appointments"] ?? "Default Appointment",
       );
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toJson() =>
+      {
         "appointments": appointments,
       };
 }
@@ -485,7 +836,8 @@ class DirectorDetailsModelLinks {
         self: json["self"] ?? "Default Self",
       );
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toJson() =>
+      {
         "self": self,
       };
 }
@@ -496,4 +848,68 @@ class Person {
   int age;
 
   Person({required this.firstName, required this.lastName, required this.age});
+}
+
+class EmployeeDataSource extends DataGridSource {
+  EmployeeDataSource({required List<DirectorDataClass> employees}) {
+    dataGridRows = employees
+        .map<DataGridRow>((dataGridRow) =>
+        DataGridRow(cells: [
+        DataGridCell<String>(columnName: 'company name',
+            value: dataGridRow.companyData.companyName),
+        DataGridCell<String>(columnName: 'company number',
+            value: dataGridRow.companyData.companyData != null
+                ? dataGridRow.companyData.companyData!.items.isNotEmpty
+                ? dataGridRow.companyData.companyData!.items[0]
+                .companyNumber
+                : ''
+                : ''),
+        DataGridCell<String>(
+            columnName: 'designation',
+            value: dataGridRow.directorDetails != null
+                ? dataGridRow.directorDetails!.items.isNotEmpty
+                ? dataGridRow.directorDetails!.items
+                .map((e) => e.name)
+                .toList()
+                .join('\n')
+                : ''
+                : ''),
+     DataGridCell<String>(
+    columnName: 'salary', value:dataGridRow.directorDetails != null
+         ? dataGridRow.directorDetails!.items.isNotEmpty
+         ? dataGridRow.directorDetails!.items
+         .map((e) => e.personNumber)
+         .toList()
+         .join('\n')
+         : ''
+         : ''),
+    ])
+    )
+    .
+    toList
+    (
+    );
+  }
+
+  List<DataGridRow> dataGridRows = [];
+
+  @override
+  List<DataGridRow> get rows => dataGridRows;
+
+  @override
+  DataGridRowAdapter? buildRow(DataGridRow row) {
+    return DataGridRowAdapter(
+        cells: row.getCells().map<Widget>((dataGridCell) {
+          return Container(
+              alignment: (dataGridCell.columnName == 'id' ||
+                  dataGridCell.columnName == 'salary')
+                  ? Alignment.centerRight
+                  : Alignment.centerLeft,
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Text(
+                dataGridCell.value.toString(),
+                overflow: TextOverflow.ellipsis,
+              ));
+        }).toList());
+  }
 }

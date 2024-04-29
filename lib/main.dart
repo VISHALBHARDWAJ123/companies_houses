@@ -10,14 +10,15 @@ import 'package:dio/dio.dart';
 import 'package:excel/excel.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-
 import 'package:hive_flutter/adapters.dart';
 import 'package:http/http.dart' as http;
 import 'package:retry/retry.dart';
+
 const apiKey = '5cb33542-c2b9-4c29-84fd-8b0a2955927c';
+
 void main() async {
   await Hive.initFlutter();
-  await HiveService().initDatabase();
+
   runApp(const MyApp());
 }
 
@@ -148,6 +149,7 @@ class _MyHomePageState extends State<MyHomePage> {
   List<String> csvList = [];
   List<String> multipleResponses = [];
   final sheetNameController = TextEditingController();
+  String sheetName = '';
 
   @override
   Widget build(BuildContext context) {
@@ -178,7 +180,10 @@ class _MyHomePageState extends State<MyHomePage> {
                     var bytes = file.readAsBytesSync();
                     var excel = Excel.decodeBytes(bytes);
 
-                    String sheetName = excel.sheets.keys.toList()[0];
+                    setState(() {
+                      sheetName = excel.sheets.keys.toList()[0];
+                    });
+
                     print(excel.sheets[sheetName]!.maxRows);
                     final element = excel.sheets[sheetName]!;
                     csvList.clear();
@@ -199,7 +204,8 @@ class _MyHomePageState extends State<MyHomePage> {
                       }
                     }
                     setState(() {
-                      csvList.removeWhere((element) => element.toLowerCase().contains('false'));
+                      csvList.removeWhere(
+                          (element) => element.toLowerCase().contains('false'));
                       fileName = file;
                     });
 
@@ -261,29 +267,35 @@ class _MyHomePageState extends State<MyHomePage> {
                       onTap: () {
                         companyData.clear();
                         for (int i = 0; i < csvList.length; i++) {
+                          if (csvList[i].toLowerCase() != 'false') {
+                            String companyName = csvList[i];
+                            print(multipleResponses[i]);
+                            ComapnyDetailsModelModel? model =
+                                multipleResponses[i].isEmpty || jsonDecode(multipleResponses[i]) is! Map<String, dynamic>
+                                    ? null
+                                    : ComapnyDetailsModelModel.fromJson(
+                                        jsonDecode(
+                                          multipleResponses[i],
+                                        ),
+                                      );
 
-                 if(csvList[i].toLowerCase() != 'false'){
-
-                   String companyName = csvList[i];
-                   print(multipleResponses[i]);
-                   ComapnyDetailsModelModel? model =
-                   multipleResponses[i].isEmpty
-                       ? null
-                       : ComapnyDetailsModelModel.fromJson(
-                     jsonDecode(
-                       multipleResponses[i],
-                     ),
-                   );
-
-                   setState(() {
-                     companyData.add(InitialCompanyData(companyName: companyName, companyData: model));
-                   });
-                 }
+                            setState(() {
+                              companyData.add(InitialCompanyData(
+                                  companyName: companyName,
+                                  companyData: model));
+                            });
+                          }
                         }
 
-
-                        Navigator.push(context, MaterialPageRoute(builder: (context)=> DataTableClass(dataList: companyData)));
-
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => DataTableClass(
+                              dataList: companyData,
+                              sheetName: sheetName,
+                            ),
+                          ),
+                        );
                       },
                       child: Container(
                         decoration: BoxDecoration(
@@ -314,108 +326,237 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  @override
+  void dispose() {
+    super.dispose();
+    Hive.close();
+  }
+
   List<InitialCompanyData> companyData = [];
   bool dataLoading = false;
   final dio = Dio();
 
+  void printBoxStructure(Box box) {
+    print('Box: ${box.name}');
+    print('Keys:');
+    for (var key in box.keys) {
+      print(key);
+    }
+    print('Values:');
+    for (var value in box.values) {
+      print(value);
+    }
+  }
+  final databaseHelper = DatabaseHelper();
 
-
-  /*Future<List<String>> hitApiRequestsInBatches(
+/*  Future<List<String>> hitApiRequestsInBatches(
       List<String> urls, int batchSize) async {
-    List<String> responses = [];
+    // Start stopwatch to measure execution time
+    final stopwatch = Stopwatch()..start();
 
-    // Split the URLs into batches
+    // Set dataLoading state to true to indicate data loading is in progress
+    setState(() => dataLoading = true);
+
+    // List to store API responses
+    final responses = <String>[];
+
+    // Encode API key for authorization header
+    final _apiKey = base64Encode(utf8.encode('$apiKey:'));
+
+    // Iterate over URLs in batches
     for (int i = 0; i < urls.length; i += batchSize) {
-      List<String> batchUrls = urls.sublist(
-          i, i + batchSize < urls.length ? i + batchSize : urls.length);
+      // Get the current batch of URLs
+      final batchUrls = urls.sublist(
+        i,
+        i + batchSize < urls.length ? i + batchSize : urls.length,
+      );
 
-      // Send requests for the current batch in parallel
-      List<Future<String>> batchFutures = batchUrls
-          .map((url) => dio
-              .get(url,
-                  options: Options(headers: {
-                    "Authorization":
-                        'Basic ${base64Encode(utf8.encode('$apiKey:'))}'
-                  }))
-              .then((value) => value.data.toString()))
-          .toList();
+      // Counter to track the number of URLs without responses in the database
+      int urlsWithoutResponseCount = 0;
 
-      // Wait for all requests in the current batch to complete
-      List<String> batchResponses = await Future.wait(batchFutures);
+      // Check each URL in the batch for response in the database or make API request
+      for (var url in batchUrls) {
+        final companyName = url.split('?q=')[1].split('&')[0];
+        try {
+          // Check if response for the URL is cached in the database
+          final cachedData = await databaseHelper.getCompany(sheetName, companyName);
 
-      // Add the responses from the current batch to the list of all responses
-      responses.addAll(batchResponses);
+          // If response is cached, add it to responses list
+          if (cachedData != null && cachedData.companyDetails != null) {
+            log('Response from database for $companyName');
+            responses.add(cachedData.companyDetails);
+          } else {
+            // Increment count if response is not cached
+
+
+            // Make API request for URLs with no response in database
+            final response = await retry(
+                  () => http.get(Uri.parse(url),
+                  headers: {'Authorization': 'Basic $_apiKey'}),
+              onRetry: (reason) => ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Retrying. Error Occurred\n$reason'),
+                ),
+              ),
+              retryIf: (error) =>
+              error is SocketException || error is TimeoutException,
+            );
+
+            // Handle API rate limit exceeded error
+            if (response.statusCode == 429) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text(
+                  'Too Many Requests on Current API key. Please wait for 5 minutes at least.\nSelect your file again after some time.',
+                ),
+              ));
+              // Pause for 5 minutes and 10 seconds if API limit is reached
+              await Future.delayed(const Duration(minutes: 5, seconds: 10));
+            } else {
+              log('API Response for $companyName: ${response.body}');
+              final company = Company(
+                companyName: companyName,
+                companyDetails: response.body,
+                directorDetails: null,
+              );
+              await databaseHelper.insertCompany(sheetName, company);
+              responses.add(response.body);
+            }
+            urlsWithoutResponseCount++;
+          }
+        } catch (e) {
+          print(e.toString());
+          // Increment count if an error occurs while fetching from database
+          urlsWithoutResponseCount++;
+        }
+      }
+
+      // If all URLs in the batch have no responses and total URLs is > 599, pause for API limit
+      if (urlsWithoutResponseCount == batchUrls.length && urls.length %600 == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+            'API limit exceeded. Pausing for 5 minutes and 10 seconds.',
+          ),
+        ));
+        await Future.delayed(const Duration(minutes: 5, seconds: 10));
+      }
+
+      // If all URLs in the batch have responses in database, continue to next batch
+      if (urlsWithoutResponseCount == 0) {
+        continue;
+      }
     }
 
+    // Set dataLoading state to false to indicate data loading is complete
+    setState(() => dataLoading = false);
+
+    // Stop stopwatch and log total execution time
+    stopwatch.stop();
+    log('Time taken for ${urls.length} APIs: ${stopwatch.elapsed.inMinutes.toString()} minutes');
+
+    // Return list of API responses
     return responses;
   }*/
 
-  Future<List<String>> hitApiRequestsInBatches(
-    List<String> urls,
-    int batchSize,
-  ) async {
-    Stopwatch stopwatch = Stopwatch();
-    stopwatch.start();
-    setState(() {
-      dataLoading = true;
-    });
-    List<String> responses = [];
-    print('Basic ${base64Encode(utf8.encode('$apiKey:'))}');
 
-    // Split the URLs into batches
+
+
+
+  Future<List<String>> hitApiRequestsInBatches(
+      List<String> urls, int batchSize) async {
+    final stopwatch = Stopwatch()..start();
+
+    // Open Hive box with error handling
+
+
+    setState(() => dataLoading = true);
+
+    final responses = <String>[];
+    final _apiKey = base64Encode(
+        utf8.encode('$apiKey:'));
+    bool  pauseApiRequest = false;// Pre-compute base64 for efficiency
+
     for (int i = 0; i < urls.length; i += batchSize) {
-      List<String> batchUrls = urls.sublist(
+      final batchUrls = urls.sublist(
           i, i + batchSize < urls.length ? i + batchSize : urls.length);
 
-      // Send requests for the current batch in parallel
-      List<Future<String>> batchFutures = batchUrls.map((url) async {
-
-        try {
-          final response = await retry(
-            // Make a GET request
-            () => http.get(Uri.parse(url), headers: {
-              "Authorization": 'Basic ${base64Encode(utf8.encode('$apiKey:'))}'
-            }).timeout(const Duration(seconds: 30)),
-
-            onRetry: (reason) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  content:
-                      Text('Retrying. Error Occurred\n${reason.toString()}')));
-            },
-            // Retry on SocketException or TimeoutException
-            retryIf: (e) => e is SocketException || e is TimeoutException,
-          );
-
-          final company = Company(companyName: url.split('q=')[1].split('&')[0], companyDetails: response.body);
-
-         await HiveService().addCompany(company);
 
 
-          return response.body;
-        } catch (e) {
-          // Handle exception, for example, log it
-          print('Error occurred while fetching data: $e');
-          // Return an empty string or some placeholder value
-          return '';
-        }
-      }).toList();
+      if(pauseApiRequest == true) {
+        await Future.delayed(const Duration(seconds: 2, minutes: 5));
+        pauseApiRequest = false;
+      }else{
+        final batchFutures = batchUrls.map((url) async {
+          try {
+            final companyName = url.split('?q=')[1].split('&')[0];
+            try {
+              final cachedData = await databaseHelper.getCompany(sheetName, companyName);
 
-      // Wait for all requests in the current batch to complete
-      List<String> batchResponses = await Future.wait(batchFutures);
+              if (cachedData != null && cachedData.companyDetails != null) {
+                log('Response from database');
+                return cachedData.companyDetails; // Use cached data if available
+              } else {
+                log('Data is not available ');
+              }
+            } catch (e) {
+              print(e.toString());
+            }
+            final response = await retry(
+                  () => http.get(Uri.parse(url),
+                  headers: {'Authorization': 'Basic $_apiKey'}),
+              onRetry: (reason) => ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Retrying. Error Occurred\n$reason'),
+                ),
+              ),
+              retryIf: (error) =>
+              error is SocketException || error is TimeoutException,
+            );
+            if(response.statusCode == 502){
+              return '';
+            }
 
+            if (response.statusCode == 429) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text(
+                  'Too Many Requests on Current API key. Please wait for 5 minutes at least.\nSelect your file again after some time.',
+                ),
+              ));
+              pauseApiRequest = true;
 
-      // Add the responses from the current batch to the list of all responses
-      responses.addAll(batchResponses);
-      print('Total responses received: ${responses.length}');
+              // Consider implementing exponential backoff here
+            } else {
+              final company = Company(
+                  companyName: companyName, companyDetails: response.body);
+              await databaseHelper
+                  .insertCompany(sheetName,company,);
+            }
+
+            return response.body;
+          } catch (error) {
+            final company = Company(
+                companyName: url.split('?q=')[1].split('&')[0],
+                companyDetails: '');
+            await databaseHelper
+                .insertCompany(sheetName,company,);
+            print('Error fetching data for $url: $error');
+            // Consider logging specific error details
+            return ''; // Or handle the error differently
+          }
+        }).toList();
+
+        final batchResponses = await Future.wait(batchFutures);
+        responses.addAll(batchResponses);
+        log('Total Responses ${responses.length}');
+      }
+
     }
-    setState(() {
-      dataLoading = false;
-    });
+
+    setState(() => dataLoading = false);
     stopwatch.stop();
-    log("Time taken by All the ${urls.length} APIs ${stopwatch.elapsed.inMinutes}");
+    log('Time taken for ${urls.length} APIs: ${stopwatch.elapsed.inMinutes.toString()} minutes');
+
     return responses;
   }
-
 }
 
 class InitialCompanyData {
@@ -449,12 +590,14 @@ class ComapnyDetailsModelModel {
 
   factory ComapnyDetailsModelModel.fromJson(Map<String, dynamic> json) =>
       ComapnyDetailsModelModel(
-        pageNumber: json["page_number"],
-        itemsPerPage: json["items_per_page"],
-        kind: json["kind"],
-        startIndex: json["start_index"],
-        items:json["items"] == null||json["items"].isEmpty?[]: List<Item2>.from(json["items"].map((x) => Item2.fromJson(x))),
-        totalResults: json["total_results"],
+        pageNumber: json["page_number"]??0,
+        itemsPerPage: json["items_per_page"]??0,
+        kind: json["kind"]??'',
+        startIndex: json["start_index"]??0,
+        items: json["items"] == null || json["items"].isEmpty
+            ? []
+            : List<Item2>.from(json["items"].map((x) => Item2.fromJson(x))),
+        totalResults: json["total_results"]??0,
       );
 
   Map<String, dynamic> toJson() => {
@@ -475,12 +618,11 @@ class Item2 {
   final String snippet;
   final String kind;
   final String dateOfCreation;
+
   // final List<String> descriptionIdentifier;
   final Address address;
   final String companyType;
   final String title;
-
-
 
   Item2({
     required this.companyNumber,
@@ -501,24 +643,27 @@ class Item2 {
   String toRawJson() => json.encode(toJson());
 
   factory Item2.fromJson(Map<String, dynamic> json) => Item2(
-        companyNumber: json["company_number"]??'',
-        description: json["description"]??'',
-        addressSnippet: json["address_snippet"]??'',
-        companyStatus: json["company_status"]??'',
-        snippet: json["snippet"]??'',
-        kind: json["kind"]??'',
-        dateOfCreation: json["date_of_creation"]??'',
+        companyNumber: json["company_number"] ?? '',
+        description: json["description"] ?? '',
+        addressSnippet: json["address_snippet"] ?? '',
+        companyStatus: json["company_status"] ?? '',
+        snippet: json["snippet"] ?? '',
+        kind: json["kind"] ?? '',
+        dateOfCreation: json["date_of_creation"] ?? '',
         // descriptionIdentifier:
         // json["description_identifier"]==null?[]:List<String>.from((json["description_identifier"] == null?[]:json["description_identifier"]).map((x) => x)),
-        address: Address.fromJson(json["address"]??{"address": {
-        "postal_code": "",
-        "locality": "",
-        "premises": "",
-        "country": "",
-        "address_line_1": ""
-        }}),
-        companyType: json["company_type"]??'',
-        title: json["title"]??'',
+        address: Address.fromJson(json["address"] ??
+            {
+              "address": {
+                "postal_code": "",
+                "locality": "",
+                "premises": "",
+                "country": "",
+                "address_line_1": ""
+              }
+            }),
+        companyType: json["company_type"] ?? '',
+        title: json["title"] ?? '',
       );
 
   Map<String, dynamic> toJson() => {
@@ -528,14 +673,12 @@ class Item2 {
         "company_status": companyStatus,
         "snippet": snippet,
         "kind": kind,
-        "date_of_creation":
-            "${dateOfCreation}",
+        "date_of_creation": "${dateOfCreation}",
         // "description_identifier":
         //     List<dynamic>.from(descriptionIdentifier.map((x) => x)),
         "address": address.toJson(),
         "company_type": companyType,
         "title": title,
-
       };
 }
 
@@ -559,11 +702,11 @@ class Address {
   String toRawJson() => json.encode(toJson());
 
   factory Address.fromJson(Map<String, dynamic> json) => Address(
-        postalCode: json["postal_code"]??'',
-        locality: json["locality"]??'',
-        premises: json["premises"]??'',
-        country: json["country"]??'',
-        addressLine1: json["address_line_1"]??'',
+        postalCode: json["postal_code"] ?? '',
+        locality: json["locality"] ?? '',
+        premises: json["premises"] ?? '',
+        country: json["country"] ?? '',
+        addressLine1: json["address_line_1"] ?? '',
       );
 
   Map<String, dynamic> toJson() => {
