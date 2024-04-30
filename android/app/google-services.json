@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "455101909232",
+    "project_id": "resume-project-5f800",
+    "storage_bucket": "resume-project-5f800.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:455101909232:android:ab4306da8a568448c8da35",
+        "android_client_info": {
+          "package_name": "com.example.csv_read"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBAOeQiIRCwJvLopmY287SDep27kwtbGvc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:455101909232:android:c77a26339a8785bac8da35",
+        "android_client_info": {
+          "package_name": "com.example.google_ads"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBAOeQiIRCwJvLopmY287SDep27kwtbGvc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      },
+      "admob_app_id": "ca-app-pub-7706427387754897~9687160390"
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -3,21 +3,28 @@ import 'dart:convert';
 import 'dart:developer';
 import 'dart:io';
 
+
 import 'package:csv_read/database_function/hive_function.dart';
 import 'package:csv_read/database_function/hive_model.dart';
 import 'package:csv_read/screens/data_table_screen.dart';
 import 'package:dio/dio.dart';
 import 'package:excel/excel.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/adapters.dart';
 import 'package:http/http.dart' as http;
 import 'package:retry/retry.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const apiKey = '5cb33542-c2b9-4c29-84fd-8b0a2955927c';
 
 void main() async {
-  await Hive.initFlutter();
+  if ( kIsWeb) {
+    // Initialize FFI
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
 
   runApp(const MyApp());
 }
@@ -144,7 +151,7 @@ class _MyHomePageState extends State<MyHomePage> {
       // Handle error appropriately
     }
   }*/
-  File? fileName;
+  String? fileName;
 
   List<String> csvList = [];
   List<String> multipleResponses = [];
@@ -176,9 +183,9 @@ class _MyHomePageState extends State<MyHomePage> {
                           allowMultiple: false);
 
                   if (result != null) {
-                    File file = File(result.files.single.path!);
-                    var bytes = file.readAsBytesSync();
-                    var excel = Excel.decodeBytes(bytes);
+
+                    var bytes = result.files.first.bytes;
+                    var excel = Excel.decodeBytes(bytes!);
 
                     setState(() {
                       sheetName = excel.sheets.keys.toList()[0];
@@ -188,9 +195,9 @@ class _MyHomePageState extends State<MyHomePage> {
                     final element = excel.sheets[sheetName]!;
                     csvList.clear();
                     for (var data in element.selectRange(
-                        CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 1),
+                        CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 1),
                         end: CellIndex.indexByColumnRow(
-                            columnIndex: 1,
+                            columnIndex: 0,
                             rowIndex: excel.sheets[sheetName]!.maxRows - 1))) {
                       if (data != null) {
                         for (var value in data) {
@@ -206,7 +213,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     setState(() {
                       csvList.removeWhere(
                           (element) => element.toLowerCase().contains('false'));
-                      fileName = file;
+                      fileName = result.files.first.name;
                     });
 
                     List<String> apiUrls = List<String>.from(
@@ -255,46 +262,54 @@ class _MyHomePageState extends State<MyHomePage> {
               const SizedBox(
                 height: 20,
               ),
-              multipleResponses.isEmpty
-                  ? const SizedBox()
-                  : Text('${multipleResponses.length} APIs record(s) found'),
-              const SizedBox(
-                height: 20,
-              ),
-              multipleResponses.isEmpty
+
+
+              /*multipleResponses.isEmpty
                   ? const SizedBox()
                   : GestureDetector(
                       onTap: () {
                         companyData.clear();
-                        for (int i = 0; i < csvList.length; i++) {
-                          if (csvList[i].toLowerCase() != 'false') {
-                            String companyName = csvList[i];
-                            ComapnyDetailsModelModel? model =
-                                multipleResponses[i].isEmpty || jsonDecode(multipleResponses[i]) is! Map<String, dynamic>
-                                    ? null
-                                    : ComapnyDetailsModelModel.fromJson(
-                                        jsonDecode(
-                                          multipleResponses[i],
-                                        ),
-                                      );
+                        try {
+                          for (int i = 0; i < csvList.length; i++) {
+                            if (csvList[i].toLowerCase() != 'false') {
+                              String companyName = csvList[i];
+                              ComapnyDetailsModelModel? model =
+                                  multipleResponses[i].isEmpty ||
+                                          jsonDecode(multipleResponses[i])
+                                              is! Map<String, dynamic>
+                                      ? null
+                                      : ComapnyDetailsModelModel.fromJson(
+                                          jsonDecode(
+                                            multipleResponses[i],
+                                          ),
+                                        );
 
-                            setState(() {
-                              companyData.add(InitialCompanyData(
-                                  companyName: companyName,
-                                  companyData: model));
-                            });
+                              setState(() {
+                                companyData.add(InitialCompanyData(
+                                    companyName: companyName,
+                                    companyData: model));
+                              });
+                            }
                           }
-                        }
 
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => DataTableClass(
-                              dataList: companyData,
-                              sheetName: sheetName,
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => DataTableClass(
+                                dataList: companyData,
+                                sheetName: sheetName,
+                              ),
                             ),
-                          ),
-                        );
+                          );
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Something Went Wrong. Please Select your file again',
+                              ),
+                            ),
+                          );
+                        }
                       },
                       child: Container(
                         decoration: BoxDecoration(
@@ -305,7 +320,7 @@ class _MyHomePageState extends State<MyHomePage> {
                           padding: EdgeInsets.symmetric(
                               vertical: 16.0, horizontal: 50),
                           child: Text(
-                            'Convert List of data into Table',
+                            'Next',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 18,
@@ -313,33 +328,68 @@ class _MyHomePageState extends State<MyHomePage> {
                           ),
                         ),
                       ),
-                    ),   multipleResponses.isEmpty
-                  ? const SizedBox()
-                  : GestureDetector(
-                      onTap: ()async{await DatabaseHelper().deleteTableData(tableName: sheetName); },
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.blue,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(
-                              vertical: 16.0, horizontal: 50),
-                          child: Text(
-                            'Clear List',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-              companyData.isEmpty
-                  ? const SizedBox()
-                  : Text(
-                      '${companyData.length} APIs record(s) converted into List'),
+                    ),*/
+
             ],
+          ),
+        ),
+      ),
+      floatingActionButton: multipleResponses.isEmpty
+          ? const SizedBox()
+          : GestureDetector(
+        onTap: () {
+          companyData.clear();
+          try {
+            for (int i = 0; i < csvList.length; i++) {
+              if (csvList[i].toLowerCase() != 'false') {
+                String companyName = csvList[i];
+                ComapnyDetailsModelModel? model =
+                multipleResponses[i].isEmpty ||
+                    jsonDecode(multipleResponses[i])
+                    is! Map<String, dynamic>
+                    ? null
+                    : ComapnyDetailsModelModel.fromJson(
+                  jsonDecode(
+                    multipleResponses[i],
+                  ),
+                );
+
+                setState(() {
+                  companyData.add(InitialCompanyData(
+                      companyName: companyName,
+                      companyData: model));
+                });
+              }
+            }
+
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => DataTableClass(
+                  dataList: companyData,
+                  sheetName: sheetName,
+                ),
+              ),
+            );
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Something Went Wrong. Please Select your file again',
+                ),
+              ),
+            );
+          }
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.blue,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(
+                vertical: 20.0, horizontal:20),
+            child: Icon(Icons.navigate_next,color: Colors.white,),
           ),
         ),
       ),
@@ -367,6 +417,7 @@ class _MyHomePageState extends State<MyHomePage> {
       print(value);
     }
   }
+
   final databaseHelper = DatabaseHelper();
 
 /*  Future<List<String>> hitApiRequestsInBatches(
@@ -477,43 +528,37 @@ class _MyHomePageState extends State<MyHomePage> {
     return responses;
   }*/
 
-
-
-
-
   Future<List<String>> hitApiRequestsInBatches(
       List<String> urls, int batchSize) async {
     final stopwatch = Stopwatch()..start();
 
     // Open Hive box with error handling
 
-
     setState(() => dataLoading = true);
 
     final responses = <String>[];
-    final _apiKey = base64Encode(
-        utf8.encode('$apiKey:'));
-    bool  pauseApiRequest = false;// Pre-compute base64 for efficiency
+    final _apiKey = base64Encode(utf8.encode('$apiKey:'));
+    bool pauseApiRequest = false; // Pre-compute base64 for efficiency
 
     for (int i = 0; i < urls.length; i += batchSize) {
       final batchUrls = urls.sublist(
           i, i + batchSize < urls.length ? i + batchSize : urls.length);
 
-
-
-      if(pauseApiRequest == true) {
+      if (pauseApiRequest == true) {
         await Future.delayed(const Duration(seconds: 2, minutes: 5));
         pauseApiRequest = false;
-      }else{
+      } else {
         final batchFutures = batchUrls.map((url) async {
           try {
             final companyName = url.split('?q=')[1].split('&')[0];
             try {
-              final cachedData = await databaseHelper.getCompany(sheetName, companyName);
+              final cachedData =
+                  await databaseHelper.getCompany(sheetName, companyName);
 
               if (cachedData != null && cachedData.companyDetails != null) {
                 log('Response from database');
-                return cachedData.companyDetails; // Use cached data if available
+                return cachedData
+                    .companyDetails; // Use cached data if available
               } else {
                 log('Data is not available ');
               }
@@ -521,7 +566,7 @@ class _MyHomePageState extends State<MyHomePage> {
               print(e.toString());
             }
             final response = await retry(
-                  () => http.get(Uri.parse(url),
+              () => http.get(Uri.parse(url),
                   headers: {'Authorization': 'Basic $_apiKey'}),
               onRetry: (reason) => ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -529,9 +574,9 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               ),
               retryIf: (error) =>
-              error is SocketException || error is TimeoutException,
+                  error is SocketException || error is TimeoutException,
             );
-            if(response.statusCode == 502){
+            if (response.statusCode == 502) {
               return '';
             }
 
@@ -547,8 +592,10 @@ class _MyHomePageState extends State<MyHomePage> {
             } else {
               final company = Company(
                   companyName: companyName, companyDetails: response.body);
-              await databaseHelper
-                  .insertCompany(sheetName,company,);
+              await databaseHelper.insertCompany(
+                sheetName,
+                company,
+              );
             }
 
             return response.body;
@@ -556,8 +603,10 @@ class _MyHomePageState extends State<MyHomePage> {
             final company = Company(
                 companyName: url.split('?q=')[1].split('&')[0],
                 companyDetails: '');
-            await databaseHelper
-                .insertCompany(sheetName,company,);
+            await databaseHelper.insertCompany(
+              sheetName,
+              company,
+            );
             print('Error fetching data for $url: $error');
             // Consider logging specific error details
             return ''; // Or handle the error differently
@@ -567,8 +616,8 @@ class _MyHomePageState extends State<MyHomePage> {
         final batchResponses = await Future.wait(batchFutures);
         responses.addAll(batchResponses);
         log('Total Responses ${responses.length}');
+        await Future.delayed(const Duration(milliseconds: 400));
       }
-
     }
 
     setState(() => dataLoading = false);
@@ -610,14 +659,14 @@ class ComapnyDetailsModelModel {
 
   factory ComapnyDetailsModelModel.fromJson(Map<String, dynamic> json) =>
       ComapnyDetailsModelModel(
-        pageNumber: json["page_number"]??0,
-        itemsPerPage: json["items_per_page"]??0,
-        kind: json["kind"]??'',
-        startIndex: json["start_index"]??0,
+        pageNumber: json["page_number"] ?? 0,
+        itemsPerPage: json["items_per_page"] ?? 0,
+        kind: json["kind"] ?? '',
+        startIndex: json["start_index"] ?? 0,
         items: json["items"] == null || json["items"].isEmpty
             ? []
             : List<Item2>.from(json["items"].map((x) => Item2.fromJson(x))),
-        totalResults: json["total_results"]??0,
+        totalResults: json["total_results"] ?? 0,
       );
 
   Map<String, dynamic> toJson() => {

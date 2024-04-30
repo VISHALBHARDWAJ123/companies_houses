@@ -78,7 +78,7 @@ class _DataTableClassState extends State<DataTableClass> {
           final List<int> bytes = workbook.saveAsStream();
           // String dir = (await getApplicationDocumentsDirectory()).path;
 
-          await helper.saveAndLaunchFile(bytes, 'DataGrid${helper.generateRandomString(5)}.xlsx');
+          await helper.saveAndLaunchFile(bytes, '${widget.sheetName}${helper.generateRandomString(5)}.xlsx');
         }, child: const Icon(Icons.save),) : const SizedBox(),
       body: dataLoading
           ? const Center(
@@ -110,23 +110,23 @@ class _DataTableClassState extends State<DataTableClass> {
                     overflow: TextOverflow.ellipsis,
                   ))),
           GridColumn(
-              columnName: 'designation',
+              columnName: 'Directors Name',
               columnWidthMode: ColumnWidthMode.auto,
               label: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
                   alignment: Alignment.centerLeft,
                   child: const Text(
-                    'Designation',
+                    'Directors Name',
                     overflow: TextOverflow.ellipsis,
                   ))),
           GridColumn(
-              columnName: 'salary',
+              columnName: 'Directors Number',
               columnWidthMode: ColumnWidthMode.auto,
               label: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
                   alignment: Alignment.centerRight,
                   child: const Text(
-                    'Salary',
+                    'Directors Number',
                     overflow: TextOverflow.ellipsis,
                   ))),
         ],
@@ -468,6 +468,8 @@ class _DataTableClassState extends State<DataTableClass> {
                 );
                 await databaseHelper.updateCompany(widget.sheetName, company);
                 responses.add(response.body);
+                print("total responses ${responses.length}");
+                await Future.delayed(const Duration(milliseconds: 400));
               }
             }
           } catch (error) {
@@ -804,7 +806,7 @@ class EmployeeDataSource extends DataGridSource {
                 : ''
                 : ''),
         DataGridCell<String>(
-            columnName: 'designation',
+            columnName: 'Directors Name',
             value: dataGridRow.directorDetails != null
                 ? dataGridRow.directorDetails!.items.isNotEmpty
                 ? dataGridRow.directorDetails!.items
@@ -814,7 +816,7 @@ class EmployeeDataSource extends DataGridSource {
                 : ''
                 : ''),
      DataGridCell<String>(
-    columnName: 'salary', value:dataGridRow.directorDetails != null
+    columnName: 'Directors Number', value:dataGridRow.directorDetails != null
          ? dataGridRow.directorDetails!.items.isNotEmpty
          ? dataGridRow.directorDetails!.items
          .map((e) => e.personNumber)
