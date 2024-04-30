@@ -188,9 +188,9 @@ class _MyHomePageState extends State<MyHomePage> {
                     final element = excel.sheets[sheetName]!;
                     csvList.clear();
                     for (var data in element.selectRange(
-                        CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 1),
+                        CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: 1),
                         end: CellIndex.indexByColumnRow(
-                            columnIndex: 0,
+                            columnIndex: 1,
                             rowIndex: excel.sheets[sheetName]!.maxRows - 1))) {
                       if (data != null) {
                         for (var value in data) {
@@ -269,7 +269,6 @@ class _MyHomePageState extends State<MyHomePage> {
                         for (int i = 0; i < csvList.length; i++) {
                           if (csvList[i].toLowerCase() != 'false') {
                             String companyName = csvList[i];
-                            print(multipleResponses[i]);
                             ComapnyDetailsModelModel? model =
                                 multipleResponses[i].isEmpty || jsonDecode(multipleResponses[i]) is! Map<String, dynamic>
                                     ? null
@@ -307,6 +306,27 @@ class _MyHomePageState extends State<MyHomePage> {
                               vertical: 16.0, horizontal: 50),
                           child: Text(
                             'Convert List of data into Table',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),   multipleResponses.isEmpty
+                  ? const SizedBox()
+                  : GestureDetector(
+                      onTap: ()async{await DatabaseHelper().deleteTableData(tableName: sheetName); },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.blue,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(
+                              vertical: 16.0, horizontal: 50),
+                          child: Text(
+                            'Clear List',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 18,

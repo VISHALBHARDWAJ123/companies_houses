@@ -7,7 +7,7 @@ class DatabaseHelper {
 
   factory DatabaseHelper() => _instance;
 
-  static const _dbVersion =2;
+  static const _dbVersion =3;
 
   Database? _db;
   DatabaseHelper._internal();
@@ -105,5 +105,18 @@ class DatabaseHelper {
         directorDetails TEXT
       )
     ''');
+  }
+
+  Future<void> deleteTableData({required String tableName}) async {
+
+    final db  = await this.db;
+
+    await db!.execute(
+      '''
+      DELETE FROM ${tableName.replaceAll(' ', '_')};
+      
+      '''
+
+    );
   }
 }

@@ -46,6 +46,11 @@ dependencies:
   syncfusion_flutter_datagrid:
 
   hive_flutter: ^1.1.0
+  sqflite: ^2.3.3
+  syncfusion_flutter_datagrid_export: ^25.1.41
+  open_file: ^3.3.2
+  permission_handler: ^11.3.1
+  share: ^2.0.4
 
 dev_dependencies:
   flutter_test:

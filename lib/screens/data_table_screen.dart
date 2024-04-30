@@ -10,10 +10,11 @@ import 'package:hive/hive.dart';
 import 'package:http/http.dart' as http;
 import 'package:retry/retry.dart';
 import 'package:syncfusion_flutter_datagrid/datagrid.dart';
+import 'package:syncfusion_flutter_datagrid_export/export.dart';
 
 import '../database_function/hive_function.dart';
 import '../main.dart';
-
+import 'package:csv_read/savefile.dart' as helper;
 class DataTableClass extends StatefulWidget {
   final String sheetName;
 
@@ -37,12 +38,12 @@ class _DataTableClassState extends State<DataTableClass> {
     'https://api.company-information.service.gov.uk/company/${e.companyData !=
         null ? e.companyData!.items.isEmpty ? '' : e.companyData!.items[0]
         .companyNumber : ''}/officers'));
-
     hitApiRequestsInBatches(urls, 10).then((value) {
       // Process API responses
       final directorDataList = <DirectorDataClass>[];
 
       for (int i = 0; i < value.length; i++) {
+
         final directorInfo = value[i].isEmpty || value[i] == '' ||
             (jsonDecode(value[i]) as Map<String, dynamic>).containsKey('errors')
             ? null
@@ -62,6 +63,7 @@ class _DataTableClassState extends State<DataTableClass> {
       print(data.length.toString());
     });
 
+
     super.initState();
   }
 
@@ -71,12 +73,19 @@ class _DataTableClassState extends State<DataTableClass> {
   Widget build(BuildContext context) {
     return Scaffold(
       floatingActionButton: dataLoading == false ? FloatingActionButton(
-        onPressed: () {}, child: const Icon(Icons.save),) : const SizedBox(),
+        onPressed: () async {
+          final  workbook = _key.currentState!.exportToExcelWorkbook();
+          final List<int> bytes = workbook.saveAsStream();
+          // String dir = (await getApplicationDocumentsDirectory()).path;
+
+          await helper.saveAndLaunchFile(bytes, 'DataGrid${helper.generateRandomString(5)}.xlsx');
+        }, child: const Icon(Icons.save),) : const SizedBox(),
       body: dataLoading
           ? const Center(
         child: CircularProgressIndicator(),
       )
           : SfDataGrid(
+        key: _key,
         source: EmployeeDataSource(employees: data),
         columns: [
           GridColumn(
@@ -370,151 +379,57 @@ class _DataTableClassState extends State<DataTableClass> {
     return responses;
   }*/
 
-
-
-
   Future<List<String>> hitApiRequestsInBatches(
       List<String> urls, int batchSize) async {
     final stopwatch = Stopwatch()..start();
 
-    // Open Hive box with error handling
-
-
     setState(() => dataLoading = true);
 
     final responses = <String>[];
-    final _apiKey = base64Encode(
-        utf8.encode('$apiKey:'));
-    bool  pauseApiRequest = false;// Pre-compute base64 for efficiency
+    final _apiKey = base64Encode(utf8.encode('$apiKey:'));
+
+    bool pauseApiRequest = false;
 
     for (int i = 0; i < urls.length; i += batchSize) {
       final batchUrls = urls.sublist(
-          i, i + batchSize < urls.length ? i + batchSize : urls.length);
+        i,
+        i + batchSize < urls.length ? i + batchSize : urls.length,
+      );
 
-
-
-      if(pauseApiRequest == true) {
+      if (pauseApiRequest) {
         await Future.delayed(const Duration(seconds: 2, minutes: 5));
         pauseApiRequest = false;
-      }else{
-        final companyName = widget.dataList[i].companyName;
-        final batchFutures = batchUrls.map((url) async {
+      } else {
+        for (String url in batchUrls) {
+          final companyName = widget.dataList[i].companyName;
+
           try {
+            /*  final cachedData = await databaseHelper.getCompany(widget.sheetName, companyName);
 
-            try {
-              final cachedData = await databaseHelper.getCompany(widget.sheetName, companyName);
-if(cachedData !=null) {
-                if (cachedData.directorDetails != null) {
-                  log('Response from database');
-                  return cachedData
-                      .directorDetails; // Use cached data if available
-                } else {
-                  log('Data is not available ');
-                  final response = await retry(
-                    () => http.get(Uri.parse(url),
-                        headers: {'Authorization': 'Basic $_apiKey'}),
-                    onRetry: (reason) =>
-                        ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Retrying. Error Occurred\n$reason'),
-                      ),
-                    ),
-                    retryIf: (error) =>
-                        error is SocketException || error is TimeoutException,
-                  );
-                  if (response.statusCode == 502) {
-                    return '';
-                  }
-
-                  if (response.statusCode == 429) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text(
-                        'Too Many Requests on Current API key. Please wait for 5 minutes at least.\nSelect your file again after some time.',
-                      ),
-                    ));
-                    pauseApiRequest = true;
-
-                    // Consider implementing exponential backoff here
-                  } else {
-                    final company = Company(
-                      companyName: companyName,
-                      companyDetails: jsonEncode(widget.dataList
-                          .firstWhere(
-                              (element) => element.companyName == companyName)
-                          .companyData!
-                          .toJson()),
-                      directorDetails: response.body,
-                    );
-                    await databaseHelper.updateCompany(
-                        widget.sheetName, company);
-                    responses.add(response.body);
-                  }
-
-                  return response.body;
-                }
-              }else{
-  final response = await retry(
-        () => http.get(Uri.parse(url),
-        headers: {'Authorization': 'Basic $_apiKey'}),
-    onRetry: (reason) => ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Retrying. Error Occurred\n$reason'),
-      ),
-    ),
-    retryIf: (error) =>
-    error is SocketException || error is TimeoutException,
-  );
-  if(response.statusCode == 502){
-    return '';
-  }
-
-  if (response.statusCode == 429) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text(
-        'Too Many Requests on Current API key. Please wait for 5 minutes at least.\nSelect your file again after some time.',
-      ),
-    ));
-    pauseApiRequest = true;
-
-    // Consider implementing exponential backoff here
-  } else {
-    final company = Company(
-      companyName: companyName,
-      companyDetails: jsonEncode(widget.dataList.firstWhere((element) => element.companyName == companyName).companyData!.toJson()),
-      directorDetails: response.body,
-    );
-    await databaseHelper.updateCompany(widget.sheetName, company);
-    responses.add(response.body);
-  }
-
-  return response.body;
-}
-            } catch (e) {
-              print(e.toString());
+            if (cachedData != null && cachedData.directorDetails != null) {
+              log('Response from database');
+              responses.add(cachedData.directorDetails!);
+            }
+            else {
               final response = await retry(
-                    () => http.get(Uri.parse(url),
-                    headers: {'Authorization': 'Basic $_apiKey'}),
+                    () => http.get(Uri.parse(url), headers: {'Authorization': 'Basic $_apiKey'}),
                 onRetry: (reason) => ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('Retrying. Error Occurred\n$reason'),
                   ),
                 ),
-                retryIf: (error) =>
-                error is SocketException || error is TimeoutException,
+                retryIf: (error) => error is SocketException || error is TimeoutException,
               );
-              if(response.statusCode == 502){
-                return '';
-              }
 
-              if (response.statusCode == 429) {
+              if (response.statusCode == 502) {
+                responses.add('');
+              } else if (response.statusCode == 429) {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                   content: Text(
                     'Too Many Requests on Current API key. Please wait for 5 minutes at least.\nSelect your file again after some time.',
                   ),
                 ));
                 pauseApiRequest = true;
-
-                // Consider implementing exponential backoff here
               } else {
                 final company = Company(
                   companyName: companyName,
@@ -524,30 +439,50 @@ if(cachedData !=null) {
                 await databaseHelper.updateCompany(widget.sheetName, company);
                 responses.add(response.body);
               }
+            }*/
+            {
+              final response = await retry(
+                    () => http.get(Uri.parse(url), headers: {'Authorization': 'Basic $_apiKey'}),
+                onRetry: (reason) => ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Retrying. Error Occurred\n$reason'),
+                  ),
+                ),
+                retryIf: (error) => error is SocketException || error is TimeoutException,
+              );
 
-              return response.body;
+              if (response.statusCode == 502) {
+                responses.add('');
+              } else if (response.statusCode == 429) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text(
+                    'Too Many Requests on Current API key. Please wait for 5 minutes at least.\nSelect your file again after some time.',
+                  ),
+                ));
+                pauseApiRequest = true;
+              } else {
+                final company = Company(
+                  companyName: companyName,
+                  companyDetails: jsonEncode(widget.dataList.firstWhere((element) => element.companyName == companyName).companyData!.toJson()),
+                  directorDetails: response.body,
+                );
+                await databaseHelper.updateCompany(widget.sheetName, company);
+                responses.add(response.body);
+              }
             }
-
           } catch (error) {
-
             final company2 = Company(
               companyName: companyName,
-              companyDetails: jsonEncode(widget.dataList.firstWhere((element) => element .companyName == companyName).companyData != null?widget.dataList.firstWhere((element) => element .companyName == companyName).companyData!.toJson():{} ),
+              companyDetails: jsonEncode(widget.dataList.firstWhere((element) => element.companyName == companyName).companyData!.toJson()),
               directorDetails: '',
             );
             await databaseHelper.updateCompany(widget.sheetName, company2);
             responses.add('');
             print('Error fetching data for $url: $error');
             // Consider logging specific error details
-            return ''; // Or handle the error differently
           }
-        }).toList();
-
-        final batchResponses = await Future.wait(batchFutures);
-        responses.addAll(batchResponses.map((e) => e??'').toList());
-        log('Total Responses ${responses.length}');
+        }
       }
-
     }
 
     setState(() => dataLoading = false);
@@ -556,6 +491,10 @@ if(cachedData !=null) {
 
     return responses;
   }
+
+
+
+  final GlobalKey<SfDataGridState> _key = GlobalKey<SfDataGridState>();
 }
 
 class DirectorDataClass {
